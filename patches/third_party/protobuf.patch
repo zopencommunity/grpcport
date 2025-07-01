@@ -1,0 +1,44 @@
+Submodule third_party/protobuf contains modified content
+diff --git a/third_party/protobuf/cmake/protoc.cmake b/third_party/protobuf/cmake/protoc.cmake
+index 385a7a3f3..ea364c799 100644
+--- a/third_party/protobuf/cmake/protoc.cmake
++++ b/third_party/protobuf/cmake/protoc.cmake
+@@ -7,6 +7,7 @@ target_link_libraries(protoc
+   libprotoc
+   libprotobuf
+   ${protobuf_ABSL_USED_TARGETS}
++  ${protobuf_ABSL_USED_TARGETS}
+ )
+ add_executable(protobuf::protoc ALIAS protoc)
+ 
+diff --git a/third_party/protobuf/src/google/protobuf/port_def.inc b/third_party/protobuf/src/google/protobuf/port_def.inc
+index edd6d5122..5615776f2 100644
+--- a/third_party/protobuf/src/google/protobuf/port_def.inc
++++ b/third_party/protobuf/src/google/protobuf/port_def.inc
+@@ -236,7 +236,7 @@ static_assert(PROTOBUF_ABSL_MIN(20230125, 3),
+ #endif
+ #if ABSL_HAVE_CPP_ATTRIBUTE(clang::musttail) && !defined(__arm__) &&  \
+     !defined(_ARCH_PPC) && !defined(__wasm__) &&                      \
+-    !(defined(_MSC_VER) && defined(_M_IX86)) && !defined(__i386__)
++    !(defined(_MSC_VER) && defined(_M_IX86)) && !defined(__i386__) && !defined(__MVS__)
+ // Compilation fails on ARM32: b/195943306
+ // Compilation fails on powerpc64le: b/187985113
+ // Compilation fails on X86 Windows:
+@@ -412,6 +412,8 @@ static_assert(PROTOBUF_ABSL_MIN(20230125, 3),
+ #endif
+ #if defined(_MSC_VER)
+ #define PROTOBUF_THREAD_LOCAL __declspec(thread)
++#elif defined(__MVS__)
++  #define PROTOBUF_THREAD_LOCAL 
+ #else
+ #define PROTOBUF_THREAD_LOCAL __thread
+ #endif
+@@ -579,7 +581,7 @@ static_assert(PROTOBUF_ABSL_MIN(20230125, 3),
+ #error PROTOBUF_DESCRIPTOR_WEAK_MESSAGES_ALLOWED was previously defined
+ #endif
+ #if defined(__GNUC__) && defined(__clang__) && !defined(__APPLE__) && \
+-    !defined(_MSC_VER) && !defined(_WIN32)
++    !defined(_MSC_VER) && !defined(_WIN32) && !defined(__MVS__)
+ #define PROTOBUF_DESCRIPTOR_WEAK_MESSAGES_ALLOWED
+ #endif
+ 

@@ -14,7 +14,10 @@ export ZOPEN_BUILD_LINE="STABLE"
 
 ## Required IF ZOPEN_BUILD_LINE='STABLE'
 export ZOPEN_STABLE_URL="https://github.com/grpc/grpc.git"  # Specify the stable build URL (either git or tarball)
-export ZOPEN_STABLE_DEPS="autoconf cmake make libtool pkgconfig git zoslib" # Specify the stable build dependencies.
+export ZOPEN_STABLE_DEPS="autoconf cmake make libtool pkgconfig git zoslib openssl zlib" # Specify the stable build dependencies.
+#note: check zlib (in third_party). Keeps complaining about some pragma map stuff
+
+
 
 ## Required IF ZOPEN_BUILD_LINE='DEV'
 export ZOPEN_DEV_URL=""   # Specify the dev build URL
@@ -29,7 +32,7 @@ export ZOPEN_RUNTIME_DEPS=""
 
 ## Runtime system prerequisites; supply the name of the system pre-requisties.
 ## Current available prerequisites: zos24 zos25 zos31 procfs (see https://github.com/zopencommunity/meta/blob/main/include/prereq.sh for a current list)
-export ZOPEN_SYSTEM_PREREQ="zos25"
+export ZOPEN_SYSTEM_PREREQ="zos31"
 
 
 ###
@@ -151,13 +154,13 @@ zopen_get_version()
 #export ZOPEN_CHECK_TIMEOUT="" ## Timeout limit in seconds for the check program (defaults to '12600' # 3.5 hours)
 #export ZOPEN_CLEAN_OPTS="" ## Options to pass to clean up  program (defaults to 'clean')
 #export ZOPEN_CONFIGURE_MINIMAL="" ## Configuration program will not be passed CFLAGS, LDFLAGS, CPPFLAGS options but will get them from env vars.
-export ZOPEN_CONFIGURE_OPTS="-B cmake/build  --install-prefix \$ZOPEN_INSTALL_PREFIX/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_PREFIX/ " ## Options to pass to configuration program (defaults to '--prefix=')
+export ZOPEN_CONFIGURE_OPTS="-B cmake/build  --install-prefix \$ZOPEN_INSTALL_PREFIX/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR -DCMAKE_CXX_STANDARD=17 -DgRPC_INSTALL=on -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package -DZLIB_ROOT=\$ZLIB_HOME -DOPENSSL_ROOT_DIR=\$OPENSSL_HOME"
+## Options to pass to configuration program (defaults to '--prefix=')
 #export ZOPEN_EXTRA_CONFIGURE_OPTS="" ## Extra configure options to pass to configuration program. (defaults to '')
 export ZOPEN_INSTALL_OPTS="--install cmake/build" ## Options to pass to installation program (defaults to 'install')
 export ZOPEN_MAKE_MINIMAL="yes" ## Build program will not be passed CFLAGS, LDFLAGS, CPPFLAGS options but will get them from env vars.
 export ZOPEN_MAKE_OPTS="--build cmake/build --parallel \$ZOPEN_NUM_JOBS " ## Options to pass to build program (defaults to '-j')
 export ZOPEN_PATCH_DIR="patches" ## Specify directory from which patches should be applied.
-
 
 ###
 ### Restricted Usage - only set in ports if necessary

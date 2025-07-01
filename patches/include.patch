@@ -1,0 +1,13 @@
+diff --git a/include/grpc/support/port_platform.h b/include/grpc/support/port_platform.h
+index 04a90fb..d645dec 100644
+--- a/include/grpc/support/port_platform.h
++++ b/include/grpc/support/port_platform.h
+@@ -203,7 +203,7 @@
+ #endif /* __has_include(<android/ndk-version.h>) */
+ #endif /* defined(__has_include) */
+ #include <linux/version.h>
+-#elif defined(__linux__)
++#elif defined(__linux__) || defined(__MVS__)
+ #define GPR_PLATFORM_STRING "linux"
+ #ifndef _BSD_SOURCE
+ #define _BSD_SOURCE

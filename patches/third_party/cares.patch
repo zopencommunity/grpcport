@@ -1,0 +1,42 @@
+Submodule third_party/cares/cares contains modified content
+diff --git a/third_party/cares/cares/include/ares_nameser.h b/third_party/cares/cares/include/ares_nameser.h
+index 18a9e5ac..a09d804a 100644
+--- a/third_party/cares/cares/include/ares_nameser.h
++++ b/third_party/cares/cares/include/ares_nameser.h
+@@ -70,8 +70,7 @@
+  * provide them
+  * ============================================================================
+  */
+-#ifndef CARES_HAVE_ARPA_NAMESER_H
+-
++#if !defined(CARES_HAVE_ARPA_NAMESER_H) || defined(__MVS__)
+ typedef enum __ns_class {
+     ns_c_invalid = 0,       /* Cookie. */
+     ns_c_in = 1,            /* Internet. */
+diff --git a/third_party/cares/cares/src/lib/ares_init.c b/third_party/cares/cares/src/lib/ares_init.c
+index 0519f43e..004043c3 100644
+--- a/third_party/cares/cares/src/lib/ares_init.c
++++ b/third_party/cares/cares/src/lib/ares_init.c
+@@ -43,7 +43,7 @@
+ #define MAX_DNS_PROPERTIES    8
+ #endif
+ 
+-#if defined(CARES_USE_LIBRESOLV)
++#if defined(CARES_USE_LIBRESOLV) || defined(__MVS__)
+ #include <resolv.h>
+ #endif
+ 
+diff --git a/third_party/cares/cares/src/lib/ares_private.h b/third_party/cares/cares/src/lib/ares_private.h
+index b6eab8a7..eacd12d1 100644
+--- a/third_party/cares/cares/src/lib/ares_private.h
++++ b/third_party/cares/cares/src/lib/ares_private.h
+@@ -37,6 +37,9 @@
+ #define HAVE_WRITEV 1
+ #endif
+ 
++#ifdef __MVS__
++#define HAVE_WRITEV 1
++#endif
+ #define DEFAULT_TIMEOUT         5000 /* milliseconds */
+ #define DEFAULT_TRIES           4
+ #ifndef INADDR_NONE

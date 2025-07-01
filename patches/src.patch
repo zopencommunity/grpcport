@@ -1,0 +1,793 @@
+diff --git a/src/core/ext/filters/logging/logging_filter.cc b/src/core/ext/filters/logging/logging_filter.cc
+index 0e5cff7..79981d1 100644
+--- a/src/core/ext/filters/logging/logging_filter.cc
++++ b/src/core/ext/filters/logging/logging_filter.cc
+@@ -75,6 +75,11 @@ namespace {
+ LoggingSink* g_logging_sink = nullptr;
+ 
+ absl::uint128 GetCallId() {
++#ifdef __MVS__
++  [[clang::no_destroy]]
++  __tlssim<absl::InsecureBitGen> gen;
++  return absl::uniform_int_distribution<absl::uint128>()(*(gen.access()));
++#else
+   thread_local absl::InsecureBitGen gen;
+   return absl::uniform_int_distribution<absl::uint128>()(gen);
+ }
+diff --git a/src/core/lib/event_engine/posix_engine/posix_engine_listener_utils.cc b/src/core/lib/event_engine/posix_engine/posix_engine_listener_utils.cc
+index 200aada..ef704f9 100644
+--- a/src/core/lib/event_engine/posix_engine/posix_engine_listener_utils.cc
++++ b/src/core/lib/event_engine/posix_engine/posix_engine_listener_utils.cc
+@@ -41,7 +41,9 @@
+ 
+ #ifdef GRPC_POSIX_SOCKET_UTILS_COMMON
+ #include <errno.h>       // IWYU pragma: keep
++#ifndef __MVS__
+ #include <ifaddrs.h>     // IWYU pragma: keep
++#endif
+ #include <netinet/in.h>  // IWYU pragma: keep
+ #include <sys/socket.h>  // IWYU pragma: keep
+ #include <unistd.h>      // IWYU pragma: keep
+diff --git a/src/core/lib/event_engine/posix_engine/timer_manager.cc b/src/core/lib/event_engine/posix_engine/timer_manager.cc
+index 2ce6087..9b6bb94 100644
+--- a/src/core/lib/event_engine/posix_engine/timer_manager.cc
++++ b/src/core/lib/event_engine/posix_engine/timer_manager.cc
+@@ -30,7 +30,13 @@
+ #include "absl/time/time.h"
+ #include "src/core/lib/debug/trace.h"
+ 
++#ifdef __MVS__
++[[clang::no_destroy]]
++static __tlssim<bool> g_timer_thread;
++#define g_timer_thread (*(g_timer_thread.access()));
++#else
+ static thread_local bool g_timer_thread;
++#endif
+ 
+ namespace grpc_event_engine::experimental {
+ 
+diff --git a/src/core/lib/event_engine/thread_local.cc b/src/core/lib/event_engine/thread_local.cc
+index ec69bc7..8bcabf1 100644
+--- a/src/core/lib/event_engine/thread_local.cc
++++ b/src/core/lib/event_engine/thread_local.cc
+@@ -14,11 +14,19 @@
+ #include "src/core/lib/event_engine/thread_local.h"
+ 
+ #include <grpc/support/port_platform.h>
+-
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
+ namespace grpc_event_engine::experimental {
+ 
+ namespace {
++#ifdef __MVS__ 
++[[clang::no_destroy]]
++__tlssim<bool> g_thread_local{false};
++#define g_thread_local (*g_thread_local.access())
++#else
+ thread_local bool g_thread_local{false};
++#endif
+ }  // namespace
+ 
+ void ThreadLocal::SetIsEventEngineThread(bool is) { g_thread_local = is; }
+diff --git a/src/core/lib/event_engine/thread_pool/work_stealing_thread_pool.cc b/src/core/lib/event_engine/thread_pool/work_stealing_thread_pool.cc
+index c855dd1..bd52561 100644
+--- a/src/core/lib/event_engine/thread_pool/work_stealing_thread_pool.cc
++++ b/src/core/lib/event_engine/thread_pool/work_stealing_thread_pool.cc
+@@ -163,9 +163,12 @@ void DumpSignalHandler(int /* sig */) {
+ }
+ 
+ }  // namespace
+-
++#ifdef __MVS__
++__tlssim<WorkQueue *> g_local_queue(nullptr);
++#define g_local_queue (*g_local_queue.access())
++#else
+ thread_local WorkQueue* g_local_queue = nullptr;
+-
++#endif
+ // -------- WorkStealingThreadPool --------
+ 
+ WorkStealingThreadPool::WorkStealingThreadPool(size_t reserve_threads)
+diff --git a/src/core/lib/iomgr/ev_epoll1_linux.cc b/src/core/lib/iomgr/ev_epoll1_linux.cc
+index 599a76c..a89edcd 100644
+--- a/src/core/lib/iomgr/ev_epoll1_linux.cc
++++ b/src/core/lib/iomgr/ev_epoll1_linux.cc
+@@ -480,10 +480,17 @@ static void fd_set_pre_allocated(grpc_fd* fd) { fd->is_pre_allocated = true; }
+ //******************************************************************************
+ // Pollset Definitions
+ //
+-
++#ifdef __MVS__
++[[clang::no_destroy]]
++static __tlssim<grpc_pollset*> g_current_thread_pollset;
++[[clang::no_destroy]]
++static __tlssim<grpc_pollset_worker*> g_current_thread_worker;
++#define g_current_thread_pollset (*g_current_thread_pollset.access())
++#define g_current_thread_worker (*g_current_thread_worker.access())
++#else
+ static thread_local grpc_pollset* g_current_thread_pollset;
+ static thread_local grpc_pollset_worker* g_current_thread_worker;
+-
++#endif
+ // The designated poller
+ static gpr_atm g_active_poller;
+ 
+diff --git a/src/core/lib/iomgr/ev_poll_posix.cc b/src/core/lib/iomgr/ev_poll_posix.cc
+index de456e8..bf232c1 100644
+--- a/src/core/lib/iomgr/ev_poll_posix.cc
++++ b/src/core/lib/iomgr/ev_poll_posix.cc
+@@ -49,6 +49,10 @@
+ #include "src/core/util/thd.h"
+ #include "src/core/util/useful.h"
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
++
+ #define GRPC_POLLSET_KICK_BROADCAST ((grpc_pollset_worker*)1)
+ 
+ //******************************************************************************
+@@ -741,8 +745,15 @@ static void fd_set_pre_allocated(grpc_fd* fd) { fd->is_pre_allocated = true; }
+ // pollset_posix.c
+ //
+ 
++#ifdef __MVS__
++static __tlssim<grpc_pollset*> g_current_thread_poller;
++static __tlssim<grpc_pollset_worker*> g_current_thread_worker;
++#define g_current_thread_poller (*g_current_thread_poller.access())
++#define g_current_thread_worker (*g_current_thread_worker.access())
++#else
+ static thread_local grpc_pollset* g_current_thread_poller;
+ static thread_local grpc_pollset_worker* g_current_thread_worker;
++#endif
+ 
+ static void remove_worker(grpc_pollset* /*p*/, grpc_pollset_worker* worker) {
+   worker->prev->next = worker->next;
+diff --git a/src/core/lib/iomgr/exec_ctx.cc b/src/core/lib/iomgr/exec_ctx.cc
+index 9e3c470..76012e7 100644
+--- a/src/core/lib/iomgr/exec_ctx.cc
++++ b/src/core/lib/iomgr/exec_ctx.cc
+@@ -51,8 +51,10 @@ static void exec_ctx_sched(grpc_closure* closure) {
+ }
+ 
+ namespace grpc_core {
+-
+-#if !defined(_WIN32) || !defined(_DLL)
++#if defined(__MVS__)
++[[clang::no_destroy]]
++__tlssim<ExecCtx*> ExecCtx::exec_ctx_;
++#elif !defined(_WIN32) || !defined(_DLL)
+ thread_local ExecCtx* ExecCtx::exec_ctx_;
+ #else  // _WIN32
+ ExecCtx*& ExecCtx::exec_ctx() {
+diff --git a/src/core/lib/iomgr/exec_ctx.h b/src/core/lib/iomgr/exec_ctx.h
+index 24b1041..68eeb3c 100644
+--- a/src/core/lib/iomgr/exec_ctx.h
++++ b/src/core/lib/iomgr/exec_ctx.h
+@@ -42,7 +42,9 @@
+ #include "src/core/util/time.h"
+ #include "src/core/util/time_precise.h"
+ 
+-#if !defined(_WIN32) || !defined(_DLL)
++#if defined(__MVS__)
++#define EXEC_CTX (*exec_ctx_.access())
++#elif !defined(_WIN32) || !defined(_DLL)
+ #define EXEC_CTX exec_ctx_
+ #define CALLBACK_EXEC_CTX callback_exec_ctx_
+ #else
+@@ -232,8 +234,10 @@ class GRPC_DLL ExecCtx : public latent_see::ParentScope {
+   uintptr_t flags_;
+ 
+   std::optional<ScopedTimeCache> time_cache_;
+-
+-#if !defined(_WIN32) || !defined(_DLL)
++#if defined(__MVS__)
++  [[clang::no_destroy]]
++  static __tlssim<ExecCtx*> exec_ctx_;
++#elif !defined(_WIN32) || !defined(_DLL)
+   static thread_local ExecCtx* exec_ctx_;
+ #else
+   // cannot be thread_local data member (e.g. exec_ctx_) on windows
+diff --git a/src/core/lib/iomgr/nameser.h b/src/core/lib/iomgr/nameser.h
+index 4d960f8..b234aac 100644
+--- a/src/core/lib/iomgr/nameser.h
++++ b/src/core/lib/iomgr/nameser.h
+@@ -27,7 +27,9 @@
+ 
+ #include <arpa/nameser.h>
+ 
+-#else  // GRPC_HAVE_ARPA_NAMESER
++#endif
++
++#if defined(__MVS__) || !defined(GRPC_HAVE_ARPA_NAMESER) // GRPC_HAVE_ARPA_NAMESER
+ 
+ typedef enum __ns_class {
+   ns_c_invalid = 0,  // Cookie.
+diff --git a/src/core/lib/iomgr/port.h b/src/core/lib/iomgr/port.h
+index 4899e17..7af16d7 100644
+--- a/src/core/lib/iomgr/port.h
++++ b/src/core/lib/iomgr/port.h
+@@ -237,6 +237,7 @@
+     "Must define exactly one of GRPC_POSIX_SOCKET, GRPC_WINSOCK_SOCKET, GRPC_CFSTREAM"
+ #endif
+ 
++
+ #ifdef GRPC_POSIX_SOCKET
+ #define GRPC_POSIX_SOCKET_ARES_EV_DRIVER 1
+ #define GRPC_POSIX_SOCKET_EV 1
+@@ -255,6 +256,14 @@
+ #define GRPC_POSIX_SOCKET_UTILS_COMMON 1
+ #endif
+ 
++#ifdef __MVS__
++#undef GRPC_LINUX_EPOLL // z/OS: some epoll flags aren't supported
++#undef GRPC_HAVE_MSG_NOSIGNAL // z/OS: yea we dont have it
++#undef GRPC_HAVE_IFADDRS // z/OS: missing <ifaddrs.h>
++#undef GRPC_LINUX_TCP_H // z/OS: we dont have linux/ 
++#undef GRPC_LINUX_EVENTFD // z/OS: missing lots of features in eventfd include
++#endif
++
+ #if defined(GRPC_POSIX_HOST_NAME_MAX) && defined(GRPC_POSIX_SYSCONF)
+ #error "Cannot define both GRPC_POSIX_HOST_NAME_MAX and GRPC_POSIX_SYSCONF"
+ #endif
+diff --git a/src/core/lib/iomgr/timer_generic.cc b/src/core/lib/iomgr/timer_generic.cc
+index 19f9e67..e998691 100644
+--- a/src/core/lib/iomgr/timer_generic.cc
++++ b/src/core/lib/iomgr/timer_generic.cc
+@@ -40,6 +40,10 @@
+ #include "src/core/util/time_averaged_stats.h"
+ #include "src/core/util/useful.h"
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
++
+ #define INVALID_HEAP_INDEX 0xffffffffu
+ 
+ #define ADD_DEADLINE_SCALE 0.33
+@@ -209,7 +213,12 @@ static void validate_non_pending_timer(grpc_timer* t) {
+ // has last-seen. This is an optimization to prevent the thread from checking
+ // shared_mutables.min_timer (which requires acquiring shared_mutables.mu lock,
+ // an expensive operation)
++#ifdef __MVS__
++static __tlssim<int64_t> g_last_seen_min_timer;
++#define g_last_seen_min_timer (*g_last_seen_min_timer.access())
++#else
+ static thread_local int64_t g_last_seen_min_timer;
++#endif
+ 
+ struct shared_mutables {
+   // The deadline of the next timer due across all timer shards
+diff --git a/src/core/lib/promise/activity.cc b/src/core/lib/promise/activity.cc
+index 5c067f4..1bc94e3 100644
+--- a/src/core/lib/promise/activity.cc
++++ b/src/core/lib/promise/activity.cc
+@@ -31,8 +31,12 @@ namespace grpc_core {
+ // GLOBALS
+ 
+ #if !defined(_WIN32) || !defined(_DLL)
++#ifdef __MVS__
++__tlssim<Activity*> Activity::g_current_activity_{nullptr};
++#else
+ thread_local Activity* Activity::g_current_activity_{nullptr};
+ #endif
++#endif
+ 
+ namespace promise_detail {
+ 
+diff --git a/src/core/lib/promise/activity.h b/src/core/lib/promise/activity.h
+index d08ef2d..b83b53f 100644
+--- a/src/core/lib/promise/activity.h
++++ b/src/core/lib/promise/activity.h
+@@ -41,6 +41,10 @@
+ #include "src/core/util/orphanable.h"
+ #include "src/core/util/sync.h"
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
++
+ namespace grpc_core {
+ 
+ class Activity;
+@@ -252,7 +256,11 @@ class Activity : public Orphanable {
+  private:
+   static Activity*& current_ref() {
+ #if !defined(_WIN32) || !defined(_DLL)
++#ifdef __MVS__
++    return (*g_current_activity_.access());
++#else
+     return g_current_activity_;
++#endif
+ #else
+     // Set during RunLoop to the Activity that's executing.
+     // Being set implies that mu_ is held.
+@@ -263,8 +271,12 @@ class Activity : public Orphanable {
+ #if !defined(_WIN32) || !defined(_DLL)
+   // Set during RunLoop to the Activity that's executing.
+   // Being set implies that mu_ is held.
++#ifdef __MVS__
++  static __tlssim<Activity *> g_current_activity_;
++#else
+   static thread_local Activity* g_current_activity_;
+ #endif
++#endif
+ };
+ 
+ // Owned pointer to one Activity.
+diff --git a/src/core/lib/promise/context.h b/src/core/lib/promise/context.h
+index 65ee6f1..57e3b9a 100644
+--- a/src/core/lib/promise/context.h
++++ b/src/core/lib/promise/context.h
+@@ -23,6 +23,9 @@
+ #include "absl/meta/type_traits.h"
+ #include "src/core/util/down_cast.h"
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
+ namespace grpc_core {
+ 
+ // To avoid accidentally creating context types, we require an explicit
+@@ -46,7 +49,9 @@ struct ContextType;
+ //  };
+ template <typename Derived>
+ struct ContextSubclass;
+-
++#ifdef __MVS__
++#define current_ (*current_.access())
++#endif
+ namespace promise_detail {
+ 
+ template <typename T, typename = void>
+@@ -61,15 +66,25 @@ class ThreadLocalContext : public ContextType<T> {
+   ThreadLocalContext& operator=(const ThreadLocalContext&) = delete;
+ 
+   GPR_ATTRIBUTE_ALWAYS_INLINE_FUNCTION static T* get() { return current_; }
+-
++#ifdef __MVS__
++#undef current_
++#endif
+  private:
+   T* const old_;
++#ifdef __MVS__
++  [[clang::no_destroy]]
++  static __tlssim<T*> current_;
++#else
+   static thread_local T* current_;
++#endif
+ };
+ 
+ template <typename T>
++#ifdef __MVS__
++__tlssim<T*> ThreadLocalContext<T>::current_;
++#else
+ thread_local T* ThreadLocalContext<T>::current_;
+-
++#endif
+ template <typename T>
+ class Context<T, absl::void_t<decltype(ContextType<T>())>>
+     : public ThreadLocalContext<T> {
+diff --git a/src/core/lib/promise/party.cc b/src/core/lib/promise/party.cc
+index e28ab56..7f4d471 100644
+--- a/src/core/lib/promise/party.cc
++++ b/src/core/lib/promise/party.cc
+@@ -36,6 +36,11 @@
+ #include "src/core/util/thd.h"            // IWYU pragma: keep
+ #endif
+ 
++
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
++
+ namespace grpc_core {
+ 
+ ///////////////////////////////////////////////////////////////////////////////
+@@ -244,7 +249,12 @@ void Party::RunLockedAndUnref(Party* party, uint64_t prev_state) {
+   thd.Start();
+ #else
+   struct RunState;
++#ifdef __MVS__
++  static __tlssim<RunState*> g_run_state(nullptr);
++#define g_run_state (*g_run_state.access())
++#else
+   static thread_local RunState* g_run_state = nullptr;
++#endif
+   struct PartyWakeup {
+     PartyWakeup() : party{nullptr} {}
+     PartyWakeup(Party* party, uint64_t prev_state)
+diff --git a/src/core/lib/surface/completion_queue.cc b/src/core/lib/surface/completion_queue.cc
+index 5e9b828..a725adc 100644
+--- a/src/core/lib/surface/completion_queue.cc
++++ b/src/core/lib/surface/completion_queue.cc
+@@ -51,6 +51,10 @@
+ #include "src/core/util/status_helper.h"
+ #include "src/core/util/time.h"
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
++
+ namespace {
+ 
+ // Specifies a cq thread local cache.
+@@ -58,8 +62,15 @@ namespace {
+ // with a cq cache will go into that cache, and
+ // will only be returned on the thread that initialized the cache.
+ // NOTE: Only one event will ever be cached.
++#ifdef __MVS__
++  __tlssim<grpc_cq_completion*> g_cached_event;
++  __tlssim<grpc_completion_queue*> g_cached_cq;
++#define g_cached_event (*g_cached_event.access())
++#define g_cached_cq (*g_cached_cq.access())
++#else
+ thread_local grpc_cq_completion* g_cached_event;
+ thread_local grpc_completion_queue* g_cached_cq;
++#endif
+ 
+ struct plucker {
+   grpc_pollset_worker** worker;
+diff --git a/src/core/util/gethostname_host_name_max.cc b/src/core/util/gethostname_host_name_max.cc
+index d446d67..bd0a1cd 100644
+--- a/src/core/util/gethostname_host_name_max.cc
++++ b/src/core/util/gethostname_host_name_max.cc
+@@ -27,6 +27,10 @@
+ #include <limits.h>
+ #include <unistd.h>
+ 
++#ifdef __MVS__
++#define HOST_NAME_MAX 255
++#endif
++
+ char* grpc_gethostname() {
+   char* hostname = static_cast<char*>(gpr_malloc(HOST_NAME_MAX));
+   if (gethostname(hostname, HOST_NAME_MAX) != 0) {
+diff --git a/src/core/util/latent_see.cc b/src/core/util/latent_see.cc
+index c1bd75e..38085f6 100644
+--- a/src/core/util/latent_see.cc
++++ b/src/core/util/latent_see.cc
+@@ -30,10 +30,21 @@
+ 
+ namespace grpc_core {
+ namespace latent_see {
+-
++#ifdef __MVS__
++[[clang::no_destroy]]
++__tlssim<uint64_t> Log::thread_id_(Log::Get().next_thread_id_.fetch_add(1));
++[[clang::no_destroy]]
++__tlssim<Bin*> Log::bin(nullptr);
++[[clang::no_destroy]]
++__tlssim<void*> Log::bin_owner_(nullptr);
++#define thread_id_ (*thread_id_.access())
++#define bin (*bin.access())
++#define bin_owner (*bin_owner.access())
++#else
+ thread_local uint64_t Log::thread_id_ = Log::Get().next_thread_id_.fetch_add(1);
+ thread_local Bin* Log::bin_ = nullptr;
+ thread_local void* Log::bin_owner_ = nullptr;
++#endif
+ std::atomic<uint64_t> Flow::next_flow_id_{1};
+ std::atomic<uintptr_t> Log::free_bins_{0};
+ const std::chrono::steady_clock::time_point start_time =
+diff --git a/src/core/util/latent_see.h b/src/core/util/latent_see.h
+index f0c0e3f..93b5507 100644
+--- a/src/core/util/latent_see.h
++++ b/src/core/util/latent_see.h
+@@ -143,9 +143,23 @@ class Log {
+ 
+   std::atomic<uint64_t> next_thread_id_{1};
+   std::atomic<uint64_t> next_batch_id_{1};
++#if defined(__MVS__)
++[[clang::no_destroy]]
++  static __tlssim<uint64_t> thread_id_;
++  
++[[clang::no_destroy]]
++  static __tlssim<Bin*> bin_;
++
++[[clang::no_destroy]]
++  static __tlssim<void *> bin_owner_;
++#define bin_ (*bin_.access())
++#define thread_id_ (*thread_id_.access())
++#define bin_owner_ (*bin_owner_.access())
++#else
+   static thread_local uint64_t thread_id_;
+   static thread_local Bin* bin_;
+   static thread_local void* bin_owner_;
++#endif
+   static std::atomic<uintptr_t> free_bins_;
+   absl::AnyInvocable<void(absl::string_view)> stats_flusher_ = nullptr;
+   Mutex mu_flushing_;
+diff --git a/src/core/util/per_cpu.cc b/src/core/util/per_cpu.cc
+index 1309872..65df89e 100644
+--- a/src/core/util/per_cpu.cc
++++ b/src/core/util/per_cpu.cc
+@@ -19,9 +19,17 @@
+ 
+ #include "src/core/util/useful.h"
+ 
+-namespace grpc_core {
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
++
++namespace grpc_core {
++#ifdef __MVS__
++  __tlssim<PerCpuShardingHelper::State> PerCpuShardingHelper::state_;
++#else
+ thread_local PerCpuShardingHelper::State PerCpuShardingHelper::state_;
++#endif
+ 
+ size_t PerCpuOptions::Shards() {
+   return ShardsForCpuCount(gpr_cpu_num_cores());
+diff --git a/src/core/util/per_cpu.h b/src/core/util/per_cpu.h
+index 69648aa..50d411c 100644
+--- a/src/core/util/per_cpu.h
++++ b/src/core/util/per_cpu.h
+@@ -24,6 +24,26 @@
+ #include <limits>
+ #include <memory>
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#include <zos-base.h>
++namespace std {
++    enum class align_val_t : std::size_t {};
++}
++
++void* operator new(std::size_t size, std::align_val_t align) {
++    std::size_t alignment = static_cast<std::size_t>(align);
++    void* ptr = __aligned_malloc(size, alignment);
++
++
++    if (!ptr) throw std::bad_alloc();
++    return ptr;
++}
++
++void operator delete(void* ptr, std::align_val_t) noexcept {
++    __aligned_free(ptr);
++}
++#endif
+ // Sharded collections of objects
+ // This used to be per-cpu, now it's much less so - but still a way to limit
+ // contention.
+@@ -64,6 +84,9 @@ class PerCpuShardingHelper {
+     // Ideally we'd just call gpr_cpu_current_cpu() every call of this function
+     // to get perfect distribution, but that function is currently quite slow on
+     // some platforms and so we need to cache it somewhat.
++#ifdef __MVS__ 
++#define state_ (*state_.access())
++#endif
+     if (GPR_UNLIKELY(state_.uses_until_refresh == 0)) state_ = State();
+     --state_.uses_until_refresh;
+     return state_.last_seen_cpu;
+@@ -74,7 +97,13 @@ class PerCpuShardingHelper {
+     uint16_t last_seen_cpu = gpr_cpu_current_cpu();
+     uint16_t uses_until_refresh = 65535;
+   };
++#ifdef __MVS__
++#undef state_
++  [[clang::no_destroy]]
++  static __tlssim<State> state_;
++#else
+   static thread_local State state_;
++#endif
+ };
+ 
+ template <typename T>
+@@ -82,7 +111,7 @@ class PerCpu {
+  public:
+   // Options are not defaulted to try and force consideration of what the
+   // options specify.
+-  explicit PerCpu(PerCpuOptions options) : shards_(options.Shards()) {}
++  explicit PerCpu(PerCpuOptions options) : shards_(options.Shards()), data_{new T[shards_]} {}
+ 
+   T& this_cpu() { return data_[sharding_helper_.GetShardingBits() % shards_]; }
+ 
+@@ -94,7 +123,7 @@ class PerCpu {
+  private:
+   PerCpuShardingHelper sharding_helper_;
+   const size_t shards_;
+-  std::unique_ptr<T[]> data_{new T[shards_]};
++  std::unique_ptr<T[]> data_;
+ };
+ 
+ }  // namespace grpc_core
+diff --git a/src/core/util/posix/thd.cc b/src/core/util/posix/thd.cc
+index 764882d..c41af7e 100644
+--- a/src/core/util/posix/thd.cc
++++ b/src/core/util/posix/thd.cc
+@@ -192,7 +192,13 @@ class ThreadInternalsPosix : public internal::ThreadInternalsInterface {
+ }  // namespace
+ 
+ void Thread::Signal(gpr_thd_id tid, int sig) {
++#ifdef __MVS__
++  pthread_t thrd;
++  thrd.__ = (unsigned long long) tid;
++  auto kill_err = pthread_kill(thrd, sig);
++#else
+   auto kill_err = pthread_kill((pthread_t)tid, sig);
++#endif
+   if (kill_err != 0) {
+     LOG(ERROR) << "pthread_kill for tid " << tid
+                << " failed: " << StrError(kill_err);
+@@ -201,7 +207,13 @@ void Thread::Signal(gpr_thd_id tid, int sig) {
+ 
+ #ifndef GPR_ANDROID
+ void Thread::Kill(gpr_thd_id tid) {
++#ifdef __MVS__
++  pthread_t thrd;
++  thrd.__ = (unsigned long long) tid;
++  auto cancel_err = pthread_cancel(thrd);
++#else
+   auto cancel_err = pthread_cancel((pthread_t)tid);
++#endif
+   if (cancel_err != 0) {
+     LOG(ERROR) << "pthread_cancel for tid " << tid
+                << " failed: " << StrError(cancel_err);
+@@ -237,7 +249,11 @@ gpr_thd_id gpr_thd_currentid(void) {
+   // Use C-style casting because Linux and OSX have different definitions
+   // of pthread_t so that a single C++ cast doesn't handle it.
+   // NOLINTNEXTLINE(google-readability-casting)
++#ifdef __MVS__
++  return (gpr_thd_id)pthread_self().__;
++#else
+   return (gpr_thd_id)pthread_self();
++#endif
+ }
+ 
+ #endif  // GPR_POSIX_SYNC
+diff --git a/src/core/util/shared_bit_gen.cc b/src/core/util/shared_bit_gen.cc
+index c547ef8..076fb0d 100644
+--- a/src/core/util/shared_bit_gen.cc
++++ b/src/core/util/shared_bit_gen.cc
+@@ -15,7 +15,10 @@
+ #include "src/core/util/shared_bit_gen.h"
+ 
+ namespace grpc_core {
+-
++#ifdef __MVS__
++  __tlssim<absl::BitGen> SharedBitGen::bit_gen_;
++#else
+ thread_local absl::BitGen SharedBitGen::bit_gen_;
++#endif
+ 
+ }  // namespace grpc_core
+diff --git a/src/core/util/shared_bit_gen.h b/src/core/util/shared_bit_gen.h
+index 415caa2..690c6fb 100644
+--- a/src/core/util/shared_bit_gen.h
++++ b/src/core/util/shared_bit_gen.h
+@@ -16,7 +16,10 @@
+ #define GRPC_SRC_CORE_UTIL_SHARED_BIT_GEN_H
+ 
+ #include "absl/random/random.h"
+-
++#ifdef __MVS__
++#define bit_gen_ (*bit_gen_.access())
++#include <zos-tls.h>
++#endif
+ namespace grpc_core {
+ 
+ class SharedBitGen {
+@@ -36,7 +39,12 @@ class SharedBitGen {
+  private:
+   // TODO(ctiller): Perhaps use per-cpu storage? Would add additional overhead
+   // for the mutex acquisition.
++#ifdef __MVS__
++#undef bit_gen_
++  static __tlssim<absl::BitGen> bit_gen_;
++#else
+   static thread_local absl::BitGen bit_gen_;
++#endif
+ };
+ 
+ }  // namespace grpc_core
+diff --git a/src/core/util/time.cc b/src/core/util/time.cc
+index f14ae8c..4895b86 100644
+--- a/src/core/util/time.cc
++++ b/src/core/util/time.cc
+@@ -29,6 +29,9 @@
+ #include "src/core/util/no_destruct.h"
+ 
+ // IWYU pragma: no_include <ratio>
++#ifdef __MVS__
++#include <zos-tls.h>
++#endif
+ 
+ namespace grpc_core {
+ 
+@@ -147,8 +150,13 @@ int64_t TimespanToMillisRoundDown(gpr_timespec ts) {
+ 
+ }  // namespace
+ 
++#ifdef __MVS__
++__tlssim<Timestamp::Source*> Timestamp::thread_local_time_source_{
++    NoDestructSingleton<GprNowTimeSource>::Get()};
++#else
+ thread_local Timestamp::Source* Timestamp::thread_local_time_source_{
+     NoDestructSingleton<GprNowTimeSource>::Get()};
++#endif
+ 
+ Timestamp ScopedTimeCache::Now() {
+   if (!cached_time_.has_value()) {
+diff --git a/src/core/util/time.h b/src/core/util/time.h
+index 1de2b4f..b833a70 100644
+--- a/src/core/util/time.h
++++ b/src/core/util/time.h
+@@ -28,6 +28,11 @@
+ #include "src/core/util/time_precise.h"
+ #include "src/core/util/useful.h"
+ 
++#ifdef __MVS__ 
++#include <zos-tls.h>
++#define thread_local_time_source_ (*thread_local_time_source_.access())
++#endif
++
+ #define GRPC_LOG_EVERY_N_SEC_DELAYED_DEBUG(n, format, ...)      \
+   do {                                                          \
+     static std::atomic<uint64_t> prev{0};                       \
+@@ -163,7 +168,12 @@ class Timestamp {
+   explicit constexpr Timestamp(int64_t millis) : millis_(millis) {}
+ 
+   int64_t millis_ = 0;
++#ifdef __MVS__
++#undef thread_local_time_source_
++  static __tlssim<Timestamp::Source*> thread_local_time_source_;
++#else
+   static thread_local Timestamp::Source* thread_local_time_source_;
++#endif
+ };
+ 
+ class ScopedTimeCache final : public Timestamp::ScopedSource {
+diff --git a/src/core/util/work_serializer.cc b/src/core/util/work_serializer.cc
+index 72cf732..7bebeb0 100644
+--- a/src/core/util/work_serializer.cc
++++ b/src/core/util/work_serializer.cc
+@@ -28,6 +28,11 @@
+ #include <thread>
+ #include <utility>
+ 
++#ifdef __MVS__
++#include <zos-tls.h>
++#define running_work_serializer_ (*running_work_serializer_.access())
++#endif
++
+ #include "absl/container/inlined_vector.h"
+ #include "absl/log/check.h"
+ #include "absl/log/log.h"
+@@ -42,6 +47,7 @@
+ #include "src/core/util/orphanable.h"
+ #include "src/core/util/sync.h"
+ 
++
+ namespace grpc_core {
+ 
+ //
+@@ -139,14 +145,24 @@ class WorkSerializer::WorkSerializerImpl
+   GPR_NO_UNIQUE_ADDRESS latent_see::Flow flow_;
+ 
+ #ifndef NDEBUG
++#ifdef __MVS__
++#undef running_work_serializer_
++  static __tlssim<WorkSerializerImpl*> running_work_serializer_;
++#else
+   static thread_local WorkSerializerImpl* running_work_serializer_;
+ #endif
++#endif
+ };
+ 
+ #ifndef NDEBUG
++#ifdef __MVS__
++__tlssim<WorkSerializer::WorkSerializerImpl*> WorkSerializer::WorkSerializerImpl::running_work_serializer_(nullptr);
++#define running_work_serializer_ (*running_work_serializer_.access())
++#else
+ thread_local WorkSerializer::WorkSerializerImpl*
+     WorkSerializer::WorkSerializerImpl::running_work_serializer_ = nullptr;
+ #endif
++#endif
+ 
+ void WorkSerializer::WorkSerializerImpl::Orphan() {
+   ReleasableMutexLock lock(&mu_);

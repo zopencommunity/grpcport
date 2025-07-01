@@ -1,0 +1,87 @@
+Submodule third_party/abseil-cpp contains modified content
+diff --git a/third_party/abseil-cpp/absl/base/attributes.h b/third_party/abseil-cpp/absl/base/attributes.h
+index 95b102e5..cc60c8b2 100644
+--- a/third_party/abseil-cpp/absl/base/attributes.h
++++ b/third_party/abseil-cpp/absl/base/attributes.h
+@@ -143,7 +143,7 @@
+     (!defined(_WIN32) ||                                          \
+      (defined(__clang__) && __clang_major__ >= 9 &&               \
+       !defined(ABSL_BUILD_DLL) && !defined(ABSL_CONSUME_DLL))) && \
+-    !defined(__MINGW32__)
++    !defined(__MINGW32__) && !defined(__MVS__)
+ #undef ABSL_ATTRIBUTE_WEAK
+ #define ABSL_ATTRIBUTE_WEAK __attribute__((weak))
+ #define ABSL_HAVE_ATTRIBUTE_WEAK 1
+@@ -751,7 +751,9 @@
+ // just using the standard `constinit` keyword directly over this macro.
+ //
+ // Note that this attribute is redundant if the variable is declared constexpr.
+-#if defined(__cpp_constinit) && __cpp_constinit >= 201907L
++#if defined(__MVS__)
++#define ABSL_CONST_INIT
++#elif defined(__cpp_constinit) && __cpp_constinit >= 201907L
+ #define ABSL_CONST_INIT constinit
+ #elif ABSL_HAVE_CPP_ATTRIBUTE(clang::require_constant_initialization)
+ #define ABSL_CONST_INIT [[clang::require_constant_initialization]]
+diff --git a/third_party/abseil-cpp/absl/base/config.h b/third_party/abseil-cpp/absl/base/config.h
+index 63b9642d..574886a8 100644
+--- a/third_party/abseil-cpp/absl/base/config.h
++++ b/third_party/abseil-cpp/absl/base/config.h
+@@ -282,7 +282,7 @@ static_assert(ABSL_INTERNAL_INLINE_NAMESPACE_STR[0] != 'h' ||
+ // supported.
+ #ifdef ABSL_HAVE_THREAD_LOCAL
+ #error ABSL_HAVE_THREAD_LOCAL cannot be directly set
+-#else
++#elif !defined(__MVS__)
+ #define ABSL_HAVE_THREAD_LOCAL 1
+ #endif
+ 
+@@ -380,7 +380,8 @@ static_assert(ABSL_INTERNAL_INLINE_NAMESPACE_STR[0] != 'h' ||
+     defined(__asmjs__) || defined(__EMSCRIPTEN__) || defined(__Fuchsia__) || \
+     defined(__sun) || defined(__myriad2__) || defined(__HAIKU__) ||          \
+     defined(__OpenBSD__) || defined(__NetBSD__) || defined(__QNX__) ||       \
+-    defined(__VXWORKS__) || defined(__hexagon__) || defined(__XTENSA__)
++    defined(__VXWORKS__) || defined(__hexagon__) || defined(__XTENSA__) ||   \
++    defined(__MVS__)
+ #define ABSL_HAVE_MMAP 1
+ #endif
+ 
+diff --git a/third_party/abseil-cpp/absl/base/internal/sysinfo.cc b/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
+index 1937db30..64076681 100644
+--- a/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
++++ b/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
+@@ -475,6 +475,13 @@ pid_t GetTID() {
+   return static_cast<pid_t>(zx_thread_self());
+ }
+ 
++#elif defined(__MVS__)
++
++pid_t GetTID() {
++  return static_cast<pid_t>(pthread_self().__);
++}
++
++
+ #else
+ 
+ // Fallback implementation of `GetTID` using `pthread_self`.
+diff --git a/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc b/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc
+index 362da1ab..158be3f7 100644
+--- a/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc
++++ b/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc
+@@ -50,11 +50,15 @@ auto tm_zone(const std::tm& tm) -> decltype(_tzname[0]) {
+   const bool is_dst = tm.tm_isdst > 0;
+   return _tzname[is_dst];
+ }
+-#elif defined(__sun) || defined(_AIX)
++#elif defined(__sun) || defined(_AIX) || defined(__MVS__)
+ // Uses the globals: 'timezone', 'altzone' and 'tzname'.
+ auto tm_gmtoff(const std::tm& tm) -> decltype(timezone) {
+   const bool is_dst = tm.tm_isdst > 0;
++#ifdef __MVS__
++  return timezone;
++#else
+   return is_dst ? altzone : timezone;
++#endif
+ }
+ auto tm_zone(const std::tm& tm) -> decltype(tzname[0]) {
+   const bool is_dst = tm.tm_isdst > 0;

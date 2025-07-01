@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 855dff5..33f731a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -330,6 +330,10 @@ endif()
+ if (MINGW)
+   add_definitions(-D_WIN32_WINNT=0x600)
+ endif()
++# z/OS - issues with aligned allocations
++if (ZOS)
++  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -faligned-allocation -D_XPLATFORM_SOURCE -D_POSIX_C_SOURCE=200809L -D_OPEN_SYS_SOCK_EXT4 -mzos-target=zOSv3r1")
++endif()
+ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_gRPC_C_CXX_FLAGS}")
+ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_gRPC_C_CXX_FLAGS}")
+ 
