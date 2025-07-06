@@ -206,7 +206,7 @@ index 4d960f8..b234aac 100644
  typedef enum __ns_class {
    ns_c_invalid = 0,  // Cookie.
 diff --git a/src/core/lib/iomgr/port.h b/src/core/lib/iomgr/port.h
-index 4899e17..7af16d7 100644
+index 4899e17..8625ec6 100644
 --- a/src/core/lib/iomgr/port.h
 +++ b/src/core/lib/iomgr/port.h
 @@ -237,6 +237,7 @@
@@ -217,7 +217,7 @@ index 4899e17..7af16d7 100644
  #ifdef GRPC_POSIX_SOCKET
  #define GRPC_POSIX_SOCKET_ARES_EV_DRIVER 1
  #define GRPC_POSIX_SOCKET_EV 1
-@@ -255,6 +256,14 @@
+@@ -255,6 +256,15 @@
  #define GRPC_POSIX_SOCKET_UTILS_COMMON 1
  #endif
  
@@ -227,6 +227,7 @@ index 4899e17..7af16d7 100644
 +#undef GRPC_HAVE_IFADDRS // z/OS: missing <ifaddrs.h>
 +#undef GRPC_LINUX_TCP_H // z/OS: we dont have linux/ 
 +#undef GRPC_LINUX_EVENTFD // z/OS: missing lots of features in eventfd include
++#define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
 +#endif
 +
  #if defined(GRPC_POSIX_HOST_NAME_MAX) && defined(GRPC_POSIX_SYSCONF)
@@ -524,10 +525,10 @@ index 1309872..65df89e 100644
  size_t PerCpuOptions::Shards() {
    return ShardsForCpuCount(gpr_cpu_num_cores());
 diff --git a/src/core/util/per_cpu.h b/src/core/util/per_cpu.h
-index 69648aa..50d411c 100644
+index 69648aa..63ab7f5 100644
 --- a/src/core/util/per_cpu.h
 +++ b/src/core/util/per_cpu.h
-@@ -24,6 +24,26 @@
+@@ -24,6 +24,38 @@
  #include <limits>
  #include <memory>
  
@@ -550,11 +551,23 @@ index 69648aa..50d411c 100644
 +void operator delete(void* ptr, std::align_val_t) noexcept {
 +    __aligned_free(ptr);
 +}
++void* operator new[](std::size_t size, std::align_val_t align) {
++    
++    std::size_t alignment = static_cast<std::size_t>(align);
++    void* ptr = __aligned_malloc(size, alignment);
++
++
++    if (!ptr) throw std::bad_alloc();
++    return ptr;
++}
++void operator delete[](void * ptr, std::align_val_t) noexcept {
++  __aligned_free(ptr);
++}
 +#endif
  // Sharded collections of objects
  // This used to be per-cpu, now it's much less so - but still a way to limit
  // contention.
-@@ -64,6 +84,9 @@ class PerCpuShardingHelper {
+@@ -64,6 +96,9 @@ class PerCpuShardingHelper {
      // Ideally we'd just call gpr_cpu_current_cpu() every call of this function
      // to get perfect distribution, but that function is currently quite slow on
      // some platforms and so we need to cache it somewhat.
@@ -564,7 +577,7 @@ index 69648aa..50d411c 100644
      if (GPR_UNLIKELY(state_.uses_until_refresh == 0)) state_ = State();
      --state_.uses_until_refresh;
      return state_.last_seen_cpu;
-@@ -74,7 +97,13 @@ class PerCpuShardingHelper {
+@@ -74,7 +109,13 @@ class PerCpuShardingHelper {
      uint16_t last_seen_cpu = gpr_cpu_current_cpu();
      uint16_t uses_until_refresh = 65535;
    };
@@ -578,7 +591,7 @@ index 69648aa..50d411c 100644
  };
  
  template <typename T>
-@@ -82,7 +111,7 @@ class PerCpu {
+@@ -82,7 +123,7 @@ class PerCpu {
   public:
    // Options are not defaulted to try and force consideration of what the
    // options specify.
@@ -587,7 +600,7 @@ index 69648aa..50d411c 100644
  
    T& this_cpu() { return data_[sharding_helper_.GetShardingBits() % shards_]; }
  
-@@ -94,7 +123,7 @@ class PerCpu {
+@@ -94,7 +135,7 @@ class PerCpu {
   private:
    PerCpuShardingHelper sharding_helper_;
    const size_t shards_;
