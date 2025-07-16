@@ -41,9 +41,9 @@ export ZOPEN_SYSTEM_PREREQ="zos31"
 
 export ZOPEN_BOOTSTRAP="skip" ## Bootstrap program to run (defaults to './bootstrap')
 export ZOPEN_CHECK="skip"     ## Check program to run (defaults to 'make')
-export ZOPEN_CONFIGURE="cmake" ## Configuration program to run (defaults to './configure')
+export ZOPEN_CONFIGURE="run_both_cmake_configure" ## Configuration program to run (defaults to './configure')
 export ZOPEN_INSTALL="cmake"   ## Installation program to run (defaults to 'make')
-export ZOPEN_MAKE="cmake"      ## Build program to run (defaults to 'make')
+export ZOPEN_MAKE="run_both_cmake_build"      ## Build program to run (defaults to 'make')
 #export ZOPEN_CLEAN=""         ## Clean up program to run (defaults to 'make')
 
 
@@ -138,6 +138,22 @@ zopen_get_version()
   ## This function runs before 'zopen build' terminates.
 #}
 
+run_both_cmake_configure() {
+# Configure grpc
+ cmake "$@"
+
+# Configure the hello world example (uncomment after doing an initial zopen build)
+# (cd examples/cpp/helloworld && cmake "$@")
+}
+
+run_both_cmake_build() {
+# Build grpc
+ cmake "$@"
+
+# Build the hello world example (uncomment after doing an initial zopen build)
+# (cd examples/cpp/helloworld && cmake "$@")
+}
+
 
 ###
 ### Optional build control variables
@@ -153,8 +169,8 @@ zopen_get_version()
 #export ZOPEN_CHECK_OPTS="" ## Options to pass to check program (defaults to 'check')
 #export ZOPEN_CHECK_TIMEOUT="" ## Timeout limit in seconds for the check program (defaults to '12600' # 3.5 hours)
 #export ZOPEN_CLEAN_OPTS="" ## Options to pass to clean up  program (defaults to 'clean')
-#export ZOPEN_CONFIGURE_MINIMAL="" ## Configuration program will not be passed CFLAGS, LDFLAGS, CPPFLAGS options but will get them from env vars.
-export ZOPEN_CONFIGURE_OPTS="-B cmake/build  --install-prefix \$ZOPEN_INSTALL_PREFIX/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR -DCMAKE_CXX_STANDARD=17 -DgRPC_INSTALL=on -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package -DZLIB_ROOT=\$ZLIB_HOME -DOPENSSL_ROOT_DIR=\$OPENSSL_HOME"
+#export ZOPEN_CONFIGURE_MINIMAL="yes" ## Configuration program will not be passed CFLAGS, LDFLAGS, CPPFLAGS options but will get them from env vars.
+export ZOPEN_CONFIGURE_OPTS="-B cmake/build  --install-prefix \$ZOPEN_INSTALL_PREFIX/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR -DCMAKE_CXX_STANDARD=17 -DgRPC_INSTALL=on -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package -DZLIB_ROOT=\$ZLIB_HOME -DOPENSSL_ROOT_DIR=\$OPENSSL_HOME" # add DgRPC_BUILD_TESTS=ON for testing
 ## Options to pass to configuration program (defaults to '--prefix=')
 #export ZOPEN_EXTRA_CONFIGURE_OPTS="" ## Extra configure options to pass to configuration program. (defaults to '')
 export ZOPEN_INSTALL_OPTS="--install cmake/build" ## Options to pass to installation program (defaults to 'install')

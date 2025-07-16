@@ -14,6 +14,31 @@ index 0e5cff7..79981d1 100644
    thread_local absl::InsecureBitGen gen;
    return absl::uniform_int_distribution<absl::uint128>()(gen);
  }
+diff --git a/src/core/lib/event_engine/posix_engine/posix_endpoint.cc b/src/core/lib/event_engine/posix_engine/posix_endpoint.cc
+index da5230a..abee442 100644
+--- a/src/core/lib/event_engine/posix_engine/posix_endpoint.cc
++++ b/src/core/lib/event_engine/posix_engine/posix_endpoint.cc
+@@ -335,7 +335,7 @@ bool PosixEndpointImpl::TcpDoRead(absl::Status& status) {
+       read_bytes = recvmsg(fd_, &msg, 0);
+     } while (read_bytes < 0 && errno == EINTR);
+ 
+-    if (read_bytes < 0 && errno == EAGAIN) {
++    if (read_bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+       // NB: After calling call_read_cb a parallel call of the read handler may
+       // be running.
+       if (total_read_bytes > 0) {
+diff --git a/src/core/lib/event_engine/posix_engine/posix_engine_listener.cc b/src/core/lib/event_engine/posix_engine/posix_engine_listener.cc
+index 8906df3..e532b73 100644
+--- a/src/core/lib/event_engine/posix_engine/posix_engine_listener.cc
++++ b/src/core/lib/event_engine/posix_engine/posix_engine_listener.cc
+@@ -170,6 +170,7 @@ void PosixEngineListenerImpl::AsyncConnectionAcceptor::NotifyOnAccept(
+               });
+           return;
+         case EAGAIN:
++        case EWOULDBLOCK:
+         case ECONNABORTED:
+           handle_->NotifyOnRead(notify_on_accept_);
+           return;
 diff --git a/src/core/lib/event_engine/posix_engine/posix_engine_listener_utils.cc b/src/core/lib/event_engine/posix_engine/posix_engine_listener_utils.cc
 index 200aada..ef704f9 100644
 --- a/src/core/lib/event_engine/posix_engine/posix_engine_listener_utils.cc
@@ -525,49 +550,20 @@ index 1309872..65df89e 100644
  size_t PerCpuOptions::Shards() {
    return ShardsForCpuCount(gpr_cpu_num_cores());
 diff --git a/src/core/util/per_cpu.h b/src/core/util/per_cpu.h
-index 69648aa..63ab7f5 100644
+index 69648aa..2bf1a26 100644
 --- a/src/core/util/per_cpu.h
 +++ b/src/core/util/per_cpu.h
-@@ -24,6 +24,38 @@
+@@ -24,6 +24,9 @@
  #include <limits>
  #include <memory>
  
 +#ifdef __MVS__
 +#include <zos-tls.h>
-+#include <zos-base.h>
-+namespace std {
-+    enum class align_val_t : std::size_t {};
-+}
-+
-+void* operator new(std::size_t size, std::align_val_t align) {
-+    std::size_t alignment = static_cast<std::size_t>(align);
-+    void* ptr = __aligned_malloc(size, alignment);
-+
-+
-+    if (!ptr) throw std::bad_alloc();
-+    return ptr;
-+}
-+
-+void operator delete(void* ptr, std::align_val_t) noexcept {
-+    __aligned_free(ptr);
-+}
-+void* operator new[](std::size_t size, std::align_val_t align) {
-+    
-+    std::size_t alignment = static_cast<std::size_t>(align);
-+    void* ptr = __aligned_malloc(size, alignment);
-+
-+
-+    if (!ptr) throw std::bad_alloc();
-+    return ptr;
-+}
-+void operator delete[](void * ptr, std::align_val_t) noexcept {
-+  __aligned_free(ptr);
-+}
 +#endif
  // Sharded collections of objects
  // This used to be per-cpu, now it's much less so - but still a way to limit
  // contention.
-@@ -64,6 +96,9 @@ class PerCpuShardingHelper {
+@@ -64,6 +67,9 @@ class PerCpuShardingHelper {
      // Ideally we'd just call gpr_cpu_current_cpu() every call of this function
      // to get perfect distribution, but that function is currently quite slow on
      // some platforms and so we need to cache it somewhat.
@@ -577,7 +573,7 @@ index 69648aa..63ab7f5 100644
      if (GPR_UNLIKELY(state_.uses_until_refresh == 0)) state_ = State();
      --state_.uses_until_refresh;
      return state_.last_seen_cpu;
-@@ -74,7 +109,13 @@ class PerCpuShardingHelper {
+@@ -74,7 +80,13 @@ class PerCpuShardingHelper {
      uint16_t last_seen_cpu = gpr_cpu_current_cpu();
      uint16_t uses_until_refresh = 65535;
    };
@@ -591,7 +587,7 @@ index 69648aa..63ab7f5 100644
  };
  
  template <typename T>
-@@ -82,7 +123,7 @@ class PerCpu {
+@@ -82,7 +94,7 @@ class PerCpu {
   public:
    // Options are not defaulted to try and force consideration of what the
    // options specify.
@@ -600,7 +596,7 @@ index 69648aa..63ab7f5 100644
  
    T& this_cpu() { return data_[sharding_helper_.GetShardingBits() % shards_]; }
  
-@@ -94,7 +135,7 @@ class PerCpu {
+@@ -94,7 +106,7 @@ class PerCpu {
   private:
    PerCpuShardingHelper sharding_helper_;
    const size_t shards_;
