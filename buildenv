@@ -1,6 +1,6 @@
 # Update bump details accordingly. Use bump check to confirm.
 # bump: grpc-version /GRPC_VERSION="(.*)"/ https://github.com/grpc/grpc.git|semver:*
-GRPC_VERSION="1.73.0" # Specify a stable release
+GRPC_VERSION="1.74.0" # Specify a stable release
 export ZOPEN_STABLE_TAG="v${GRPC_VERSION}"
 
 ###
