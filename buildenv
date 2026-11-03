@@ -170,7 +170,10 @@ run_both_cmake_build() {
 #export ZOPEN_CHECK_TIMEOUT="" ## Timeout limit in seconds for the check program (defaults to '12600' # 3.5 hours)
 #export ZOPEN_CLEAN_OPTS="" ## Options to pass to clean up  program (defaults to 'clean')
 #export ZOPEN_CONFIGURE_MINIMAL="yes" ## Configuration program will not be passed CFLAGS, LDFLAGS, CPPFLAGS options but will get them from env vars.
-export ZOPEN_CONFIGURE_OPTS="-B cmake/build  --install-prefix \$ZOPEN_INSTALL_PREFIX/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR -DCMAKE_CXX_STANDARD=17 -DgRPC_INSTALL=on -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package -DZLIB_ROOT=\$ZLIB_HOME -DOPENSSL_ROOT_DIR=\$OPENSSL_HOME" # add DgRPC_BUILD_TESTS=ON for testing
+export ZOPEN_CONFIGURE_OPTS="-B cmake/build  --install-prefix \$ZOPEN_INSTALL_PREFIX/ -DCMAKE_INSTALL_PREFIX=\$ZOPEN_INSTALL_DIR -DCMAKE_CXX_STANDARD=17 -DgRPC_INSTALL=on -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package -DZLIB_ROOT=\$ZLIB_HOME -DOPENSSL_ROOT_DIR=\$OPENSSL_HOME -DCMAKE_POLICY_VERSION_MINIMUM=3.5" # add DgRPC_BUILD_TESTS=ON for testing
+# NOTE: -DCMAKE_POLICY_VERSION_MINIMUM=3.5 is required with CMake >= 4.0:
+# grpc's bundled third_party/cares declares cmake_minimum_required(VERSION 3.5-era)
+# which CMake 4.x rejects outright otherwise.
 ## Options to pass to configuration program (defaults to '--prefix=')
 #export ZOPEN_EXTRA_CONFIGURE_OPTS="" ## Extra configure options to pass to configuration program. (defaults to '')
 export ZOPEN_INSTALL_OPTS="--install cmake/build" ## Options to pass to installation program (defaults to 'install')
@@ -188,6 +191,12 @@ export ZOPEN_PATCH_DIR="patches" ## Specify directory from which patches should 
 
 ###
 ### Additional user-defined custom code  - runs during script source
+
+## Build with IBM Open Enterprise LLVM clang (ASCII mode) via COMPILER_PATH
+export COMPILER_PATH=/home/haritha/install_test/usr/lpp/IBM/oelcpp/v3r0/bin/clang
+export PATH="$(dirname "$COMPILER_PATH"):$PATH"
+export CC=clang
+export CXX=clang++
 ###
 
 ## Add user-defined functions and code

@@ -85,3 +85,30 @@ index 362da1ab..158be3f7 100644
  }
  auto tm_zone(const std::tm& tm) -> decltype(tzname[0]) {
    const bool is_dst = tm.tm_isdst > 0;
+diff --git a/third_party/abseil-cpp/absl/crc/crc32c.h b/third_party/abseil-cpp/absl/crc/crc32c.h
+--- a/third_party/abseil-cpp/absl/crc/crc32c.h
++++ b/third_party/abseil-cpp/absl/crc/crc32c.h
+@@ -25,6 +25,7 @@
+ #define ABSL_CRC_CRC32C_H_
+ 
+ #include <cstdint>
++#include <iomanip>
+ #include <ostream>
+ 
+ #include "absl/crc/internal/crc32c_inline.h"
+@@ -181,7 +182,12 @@ constexpr crc32c_t operator^(crc32c_t lhs, crc32c_t rhs) {
+ // operator<<
+ //
+ // Streams the CRC32C value `crc` to the stream `os`.
+ inline std::ostream& operator<<(std::ostream& os, crc32c_t crc) {
+-  return os << absl::StreamFormat("%08x", static_cast<uint32_t>(crc));
++  // z/OS fix: IBM Open XL C++ cannot compile the absl::StreamFormat template
++  // here ('FormatSpecTemplate<void>' is unavailable). Use standard C++
++  // stream formatting instead.
++  std::ios_base::fmtflags flags = os.flags();
++  os << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(crc);
++  os.flags(flags);
++  return os;
+ }
+ 
+ ABSL_NAMESPACE_END

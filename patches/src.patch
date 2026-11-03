@@ -800,3 +800,111 @@ index 72cf732..7bebeb0 100644
  
  void WorkSerializer::WorkSerializerImpl::Orphan() {
    ReleasableMutexLock lock(&mu_);
+diff --git a/src/core/credentials/transport/tls/grpc_tls_crl_provider.cc b/src/core/credentials/transport/tls/grpc_tls_crl_provider.cc
+--- a/src/core/credentials/transport/tls/grpc_tls_crl_provider.cc
++++ b/src/core/credentials/transport/tls/grpc_tls_crl_provider.cc
+@@ -59,7 +59,12 @@ absl::StatusOr<std::string> IssuerFromCrl(X509_CRL* crl) {
+   if (crl == nullptr) {
+     return absl::InvalidArgumentError("crl cannot be null");
+   }
+-  X509_NAME* issuer = X509_CRL_get_issuer(crl);
++  // z/OS: X509_CRL_get_issuer is const-correct in zopen's OpenSSL headers;
++  // upstream grpc expects the older non-const signature.
++#if defined(__MVS__)
++  const X509_NAME* issuer = X509_CRL_get_issuer(crl);
++#else
++  X509_NAME* issuer = X509_CRL_get_issuer(crl);
++#endif
+   if (issuer == nullptr) {
+     return absl::InvalidArgumentError("crl cannot have null issuer");
+   }
+diff --git a/src/core/tsi/ssl_transport_security_utils.cc b/src/core/tsi/ssl_transport_security_utils.cc
+--- a/src/core/tsi/ssl_transport_security_utils.cc
++++ b/src/core/tsi/ssl_transport_security_utils.cc
+@@ -281,11 +281,11 @@ bool VerifyCrlCertIssuerNamesMatch(X509_CRL* crl, X509* cert) {
+   if (cert == nullptr || crl == nullptr) {
+     return false;
+   }
+-  X509_NAME* cert_issuer_name = X509_get_issuer_name(cert);
++  const X509_NAME* cert_issuer_name = X509_get_issuer_name(cert);
+   if (cert == nullptr) {
+     return false;
+   }
+-  X509_NAME* crl_issuer_name = X509_CRL_get_issuer(crl);
++  const X509_NAME* crl_issuer_name = X509_CRL_get_issuer(crl);
+   if (crl_issuer_name == nullptr) {
+     return false;
+   }
+@@ -316,7 +316,7 @@ absl::StatusOr<std::string> IssuerFromCert(X509* cert) {
+   if (cert == nullptr) {
+     return absl::InvalidArgumentError("cert cannot be null");
+   }
+-  X509_NAME* issuer = X509_get_issuer_name(cert);
++  const X509_NAME* issuer = X509_get_issuer_name(cert);
+   unsigned char* buf = nullptr;
+   int len = i2d_X509_NAME(issuer, &buf);
+   if (len < 0 || buf == nullptr) {
+@@ -331,7 +331,7 @@ absl::StatusOr<std::string> AkidFromCertificate(X509* cert) {
+   if (cert == nullptr) {
+     return absl::InvalidArgumentError("cert cannot be null.");
+   }
+-  ASN1_OCTET_STRING* akid = nullptr;
++  const ASN1_OCTET_STRING* akid = nullptr;
+   int j = X509_get_ext_by_NID(cert, NID_authority_key_identifier, -1);
+   // Can't have multiple occurrences
+   if (j >= 0) {
+@@ -356,7 +356,7 @@ absl::StatusOr<std::string> AkidFromCrl(X509_CRL* crl) {
+   if (crl == nullptr) {
+     return absl::InvalidArgumentError("Could not get AKID from crl.");
+   }
+-  ASN1_OCTET_STRING* akid = nullptr;
++  const ASN1_OCTET_STRING* akid = nullptr;
+   int j = X509_CRL_get_ext_by_NID(crl, NID_authority_key_identifier, -1);
+   // Can't have multiple occurrences
+   if (j >= 0) {
+diff --git a/src/core/lib/event_engine/posix_engine/ev_poll_posix.cc b/src/core/lib/event_engine/posix_engine/ev_poll_posix.cc
+--- a/src/core/lib/event_engine/posix_engine/ev_poll_posix.cc
++++ b/src/core/lib/event_engine/posix_engine/ev_poll_posix.cc
+@@ -44,6 +44,13 @@
+ #include <poll.h>
++// z/OS: <poll.h> uses __poll as its include guard (#define __poll 1), which
++// leaks and collides with the __poll parameter name in libc++'s
++// __thread/poll_with_backoff.h. Redefine the macro to a unique token: the
++// include guard still works, and the libc++ parameter gets renamed
++// consistently by macro expansion in both declaration and uses.
++#define __poll grpc_zos_poll_guard
+ 
+ #include "src/core/lib/event_engine/common/handle_containers.h"
+diff --git a/src/core/lib/iomgr/ev_epoll1_linux.cc b/src/core/lib/iomgr/ev_epoll1_linux.cc
+--- a/src/core/lib/iomgr/ev_epoll1_linux.cc
++++ b/src/core/lib/iomgr/ev_epoll1_linux.cc
+@@ -31,6 +31,13 @@
+ #include <poll.h>
++// z/OS: <poll.h> __poll include-guard vs libc++ __poll parameter clash.
++// See src/core/lib/iomgr/ev_poll_posix.cc for details.
++#define __poll grpc_zos_poll_guard
+ 
+ #include <sys/epoll.h>
+diff --git a/src/core/lib/iomgr/ev_poll_posix.cc b/src/core/lib/iomgr/ev_poll_posix.cc
+--- a/src/core/lib/iomgr/ev_poll_posix.cc
++++ b/src/core/lib/iomgr/ev_poll_posix.cc
+@@ -28,6 +28,13 @@
+ #include <poll.h>
++// z/OS: <poll.h> uses __poll as its include guard (#define __poll 1), which
++// leaks and collides with the __poll parameter name in libc++'s
++// __thread/poll_with_backoff.h. Redefine the macro to a unique token: the
++// include guard still works, and the libc++ parameter gets renamed
++// consistently by macro expansion in both declaration and uses.
++#define __poll grpc_zos_poll_guard
+ 
+ #include <string.h>
+diff --git a/src/core/lib/iomgr/ev_posix.h b/src/core/lib/iomgr/ev_posix.h
+--- a/src/core/lib/iomgr/ev_posix.h
++++ b/src/core/lib/iomgr/ev_posix.h
+@@ -25,6 +25,13 @@
+ #include <poll.h>
++// z/OS: <poll.h> __poll include-guard vs libc++ __poll parameter clash.
++// See src/core/lib/iomgr/ev_poll_posix.cc for details.
++#define __poll grpc_zos_poll_guard
+ 
+ #include "src/core/lib/iomgr/exec_ctx.h"
